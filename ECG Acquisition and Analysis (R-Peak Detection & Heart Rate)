@@ -1,0 +1,40 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Step 1: Load ECG signal (single column text file)
+ecg = np.loadtxt(r"C:\Users\HP\Downloads\Biopac sandra ecg.txt")
+
+# Step 2: Select region of interest (samples 200 to 4999)
+x = ecg[200:5000]
+
+# Step 3: Sampling frequency and signal length
+fs = 250                # Hz
+n = len(x)
+
+# Step 4: Threshold = 50% of the maximum amplitude
+th = 0.5 * np.max(x)
+
+# Step 5 & 6: Detect R-peaks
+r = []                  # list to store R-peak indices
+for i in range(1, n - 1):          # skip first and last sample
+    if x[i] >= th:                 # must be above threshold
+        if x[i] > x[i-1] and x[i] > x[i+1]:   # must be a local maximum
+            r.append(i)            # store the index
+
+# Step 7: RR intervals (distance between consecutive peaks, in samples)
+rr = np.diff(r)
+
+# Steps 8 & 9: Average RR and heart rate
+if len(rr) > 0:
+    avg = np.mean(rr)              # average RR in samples
+    hr = (60 * fs) / avg           # convert to bpm
+    print("Heart Rate:", hr, "bpm")
+
+# Step 10: Plot ECG with R-peaks marked
+plt.plot(x)
+for i in r:
+    plt.axvline(i, color="red", linestyle="--")   # vertical dashed line at each peak
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+plt.title("ECG with R Peaks")
+plt.show()
