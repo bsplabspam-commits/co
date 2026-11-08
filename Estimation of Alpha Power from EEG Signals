@@ -1,0 +1,81 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.io import loadmat
+from scipy.signal import butter, filtfilt, welch
+
+# Step 1: Load MAT file
+data = loadmat("C:/Users/Dell/Downloads/subject_04.mat")
+sig = data["SIGNAL"]
+
+# Step 2: Split the signal matrix
+eeg = sig[:, 0:16]       # 16 EEG channels
+ec = sig[:, 17]          # eyes-closed marker
+eo = sig[:, 18]          # eyes-open marker
+
+# Step 3: Sampling parameters
+fs = 512
+n = 5 * fs               # epoch length = 2560 samples (5 seconds)
+
+# Step 4: Detect epoch onsets (rising edges: 0 -> 1)
+pc = []                  # eyes-closed onsets
+po = []                  # eyes-open onsets
+for i in range(len(ec) - 1):
+    if ec[i] < ec[i+1]:
+        pc.append(i + 1)
+for i in range(len(eo) - 1):
+    if eo[i] < eo[i+1]:
+        po.append(i + 1)
+
+# Step 5: Select channel 14
+x = eeg[:, 14]
+
+# Step 6: Design Butterworth band-pass filter (0.5–40 Hz)
+b, a = butter(4, [0.5/(fs/2), 40/(fs/2)], btype="band")
+
+# Step 7: Function to compute relative alpha power for a list of onsets
+def calc(pos):
+    ap = []              # relative alpha values
+    ps = []              # PSDs (for plotting)
+    f = None             # frequency axis
+    for i in pos:
+        y = x[i:i+n]                        # extract 5-s epoch
+        if len(y) < n:                      # skip if too short
+            continue
+        y = y - np.mean(y)                  # remove DC (mean)
+        y = filtfilt(b, a, y)               # zero-phase band-pass filter
+        f, p = welch(y, fs=fs, nperseg=1024, noverlap=512)   # Welch PSD
+
+        ai = (f >= 8) & (f <= 13)           # alpha band mask
+        ti = (f >= 0.5) & (f <= 40)         # total band mask
+
+        a_pow = np.trapz(p[ai], f[ai])      # alpha power (area under PSD)
+        t_pow = np.trapz(p[ti], f[ti])      # total power
+
+        if t_pow > 0:
+            ap.append((a_pow / t_pow) * 100)   # relative alpha (%)
+        ps.append(p)
+    return np.array(ap), np.array(ps), f
+
+# Step 8: Compute for both conditions
+ac, sc, f = calc(pc)     # eyes closed
+ao, so, f = calc(po)     # eyes open
+
+if len(ac) > 0:
+    print("Eyes Closed Alpha Power:", np.mean(ac), "%")
+if len(ao) > 0:
+    print("Eyes Open Alpha Power:", np.mean(ao), "%")
+
+# Step 9: Plot mean PSD for both conditions
+plt.figure()
+if len(sc) > 0:
+    plt.plot(f, np.mean(sc, axis=0), label="Eyes Closed")
+if len(so) > 0:
+    plt.plot(f, np.mean(so, axis=0), label="Eyes Open")
+
+plt.axvspan(8, 13, alpha=0.2)       # shade the alpha band
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("Power")
+plt.title("EEG Alpha Power")
+plt.legend()
+plt.grid()
+plt.show()
