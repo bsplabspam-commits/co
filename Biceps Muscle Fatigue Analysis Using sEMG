@@ -1,0 +1,84 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.signal import butter, filtfilt, iirnotch, welch
+from scipy.stats import linregress
+
+# Step 1: Load EMG data from Excel
+data = pd.read_excel("Suj_4_82.xlsx")
+emg = data["EMG"].dropna().to_numpy()   # drop NaNs and convert to array
+
+# Step 2: Sampling parameters
+fs = 1000
+
+# Step 3: Remove DC offset (mean)
+emg = emg - np.mean(emg)
+
+# Step 4: Band-pass filter 20–450 Hz (4th-order Butterworth)
+b, a = butter(4, [20/(fs/2), 450/(fs/2)], btype="bandpass")
+filt = filtfilt(b, a, emg)
+
+# Step 5: Notch filter at 50 Hz (Q = 30) to remove power-line noise
+b, a = iirnotch(50, 30, fs)
+filt = filtfilt(b, a, filt)
+
+# Step 6: Windowing parameters
+win = 2 * fs             # window = 2000 samples (2 s)
+step = fs                # step = 1000 samples (1 s)
+feat = []                # will hold [time, rms, zc, mnf, mdf]
+
+# Step 7: Loop through each window and compute features
+for i in range(0, len(filt) - win + 1, step):
+    x = filt[i:i+win]                       # extract window
+
+    # (a) RMS = sqrt(mean(x^2))
+    rms = np.sqrt(np.mean(x**2))
+
+    # (b) Zero-crossings: count sign changes
+    zc = np.sum(x[:-1] * x[1:] < 0)
+
+    # (c) Welch PSD
+    f, p = welch(x, fs=fs, nperseg=fs)
+
+    # (d) Mean Frequency = sum(f * P) / sum(P)
+    mnf = np.sum(f * p) / np.sum(p)
+
+    # (e) Median Frequency = f where cumulative PSD = 50% of total
+    cp = np.cumsum(p)                       # cumulative power
+    idx = np.searchsorted(cp, cp[-1] / 2)   # find 50% point
+    mdf = f[idx]
+
+    # Store [time, rms, zc, mnf, mdf]
+    feat.append([i/fs, rms, zc, mnf, mdf])
+
+feat = np.array(feat)
+
+# Step 8: Extract columns and compute fatigue slopes
+t = feat[:, 0]
+rms = feat[:, 1]
+zc = feat[:, 2]
+mnf = feat[:, 3]
+mdf = feat[:, 4]
+
+print("RMS Slope:", linregress(t, rms).slope)
+print("Zero Crossing Slope:", linregress(t, zc).slope)
+print("MNF Slope:", linregress(t, mnf).slope)
+print("MDF Slope:", linregress(t, mdf).slope)
+
+# Step 9: Plot RMS trend
+plt.plot(t, rms)
+plt.xlabel("Time (s)")
+plt.ylabel("RMS")
+plt.title("RMS Trend")
+plt.grid()
+plt.show()
+
+# Plot MNF and MDF trends (frequency compression indicates fatigue)
+plt.plot(t, mnf, label="MNF")
+plt.plot(t, mdf, label="MDF")
+plt.xlabel("Time (s)")
+plt.ylabel("Frequency (Hz)")
+plt.title("Muscle Fatigue Analysis")
+plt.legend()
+plt.grid()
+plt.show()
