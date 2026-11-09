@@ -1,0 +1,73 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import welch
+
+# ---------- B1: load 1-minute ECG ----------
+ecg = np.loadtxt("ecg_1min.txt")
+fs = 500
+ecg = ecg - np.mean(ecg)                        # B2: DC removal
+
+# ---------- B6: R-peak detection (threshold + local max) ----------
+th = 0.5 * np.max(ecg)                          # threshold = 0.5 * max
+r = []
+for i in range(1, len(ecg) - 1):
+    if ecg[i] > th and ecg[i] > ecg[i-1] and ecg[i] > ecg[i+1]:
+        r.append(i)
+r = np.array(r)
+
+# ---------- Step 1: RR intervals in seconds ----------
+RR = np.diff(r) / fs                            # RR[k] = (r[k+1]-r[k])/fs
+dRR = np.diff(RR)                               # successive differences
+
+# ---------- Step 2: TIME-DOMAIN HRV ----------
+mean_rr = np.mean(RR)                           # Mean RR interval
+sdnn    = np.std(RR, ddof=1)                    # SDNN (sample std, N-1)
+rmssd   = np.sqrt(np.mean(dRR**2))              # RMSSD
+nn50    = np.sum(np.abs(dRR) > 0.050)           # count |ΔRR| > 50 ms
+pnn50   = (nn50 / len(dRR)) * 100               # pNN50 (%)
+
+print(f"Mean RR : {mean_rr*1000:.2f} ms")
+print(f"SDNN    : {sdnn*1000:.2f} ms")
+print(f"RMSSD   : {rmssd*1000:.2f} ms")
+print(f"pNN50   : {pnn50:.2f} %")
+
+# ---------- Step 3: FREQUENCY-DOMAIN HRV ----------
+t_rr = np.cumsum(RR)                            # time stamp of each RR
+t_uniform = np.arange(0, t_rr[-1], 1/4)         # 4 Hz uniform grid
+rr_interp = np.interp(t_uniform, t_rr, RR)      # interpolate RR to 4 Hz
+
+f, p = welch(rr_interp, fs=4, nperseg=256)      # Welch PSD of RR
+lf_band = (f >= 0.04) & (f <= 0.15)             # LF: 0.04–0.15 Hz
+hf_band = (f >= 0.15) & (f <= 0.40)             # HF: 0.15–0.40 Hz
+lf = np.trapz(p[lf_band], f[lf_band])           # LF power
+hf = np.trapz(p[hf_band], f[hf_band])           # HF power
+lf_hf = lf / hf                                 # LF/HF ratio
+
+print(f"LF      : {lf:.4f}")
+print(f"HF      : {hf:.4f}")
+print(f"LF/HF   : {lf_hf:.2f}")
+
+# ---------- Plots ----------
+# ECG with R-peaks marked
+plt.figure(figsize=(12, 3))
+plt.plot(ecg)
+plt.plot(r, ecg[r], "ro")
+plt.xlabel("Sample"); plt.ylabel("Amplitude")
+plt.title("ECG with R-Peaks")
+plt.grid(); plt.show()
+
+# RR tachogram
+plt.figure(figsize=(10, 4))
+plt.plot(t_rr, RR*1000, "o-")
+plt.xlabel("Time (s)"); plt.ylabel("RR (ms)")
+plt.title("RR Tachogram")
+plt.grid(); plt.show()
+
+# RR PSD with LF/HF bands
+plt.figure()
+plt.plot(f, p)
+plt.axvspan(0.04, 0.15, alpha=0.2, label="LF")
+plt.axvspan(0.15, 0.40, alpha=0.2, label="HF")
+plt.xlabel("Frequency (Hz)"); plt.ylabel("PSD")
+plt.title("RR PSD (HRV)")
+plt.legend(); plt.grid(); plt.show()
